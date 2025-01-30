@@ -88,7 +88,8 @@ contract MinimalAccountTest is Test {
         PackedUserOperation memory packedUserOp = sendPackedUserOp
             .generateSignedUserOperation(
                 executeCallData,
-                helperConfig.getConfig()
+                helperConfig.getConfig(),
+                address(minimalAccount)
             );
         bytes32 userOperationHash = IEntryPoint(
             helperConfig.getConfig().entryPoint
@@ -100,5 +101,88 @@ contract MinimalAccountTest is Test {
         );
         //assert
         assertEq(actualSigner, minimalAccount.owner());
+    }
+
+    //1 sign user ops
+    //2 call validate userops
+    //3 assert the retun is correct
+    function testValidationOfUserOps() public {
+        //arrange
+        assertEq(usdc.balanceOf(address(minimalAccount)), 0);
+        address dest = address(usdc);
+        uint256 value = 0;
+        bytes memory functionData = abi.encodeWithSelector(
+            ERC20Mock.mint.selector,
+            address(minimalAccount),
+            AMOUNT
+        );
+
+        bytes memory executeCallData = abi.encodeWithSelector( //basically here we say, hey entrypoint call our contract for it to call the blockchain - usdc
+            MinimalAccount.execute.selector, // minimalaccoun call this execute function and inside it call usdc
+            dest,
+            value,
+            functionData
+        );
+        PackedUserOperation memory packedUserOp = sendPackedUserOp
+            .generateSignedUserOperation(
+                executeCallData,
+                helperConfig.getConfig(),
+                address(minimalAccount)
+            );
+        bytes32 userOperationHash = IEntryPoint(
+            helperConfig.getConfig().entryPoint
+        ).getUserOpHash(packedUserOp);
+        uint256 missingAccountFunds = 1e18;
+
+        //act
+        vm.prank(helperConfig.getConfig().entryPoint); //this is because the validate user in the MinimalAccount.sol can only be called if it is the entry point
+        uint256 validationData = minimalAccount.validateUserOp(
+            packedUserOp,
+            userOperationHash,
+            missingAccountFunds
+        );
+
+        //assert
+        assertEq(validationData, 0);
+    }
+
+    function testEntryPointCanExecuteCommands() public {
+        //arrange
+        assertEq(usdc.balanceOf(address(minimalAccount)), 0);
+        address dest = address(usdc);
+        uint256 value = 0;
+        bytes memory functionData = abi.encodeWithSelector(
+            ERC20Mock.mint.selector,
+            address(minimalAccount),
+            AMOUNT
+        );
+
+        bytes memory executeCallData = abi.encodeWithSelector( //basically here we say, hey entrypoint call our contract for it to call the blockchain - usdc
+            MinimalAccount.execute.selector, // minimalaccoun call this execute function and inside it call usdc
+            dest,
+            value,
+            functionData
+        );
+        PackedUserOperation memory packedUserOp = sendPackedUserOp
+            .generateSignedUserOperation(
+                executeCallData,
+                helperConfig.getConfig(),
+                address(minimalAccount)
+            );
+        bytes32 userOperationHash = IEntryPoint(
+            helperConfig.getConfig().entryPoint
+        ).getUserOpHash(packedUserOp);
+        vm.deal(address(minimalAccount), 1e18); //giving the account some money in ether;
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = packedUserOp;
+        //act
+        vm.prank(randomuser); //now we can have a random user submiting the transaction and as long as we sign it its OK
+        IEntryPoint(helperConfig.getConfig().entryPoint).handleOps(
+            ops,
+            payable(randomuser)
+        );
+
+        //assert
+        assertEq(usdc.balanceOf(address(minimalAccount)), AMOUNT);
     }
 }
